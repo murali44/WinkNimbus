@@ -7,8 +7,10 @@ import wink
 
 import ConfigParser
 import time
+import json
 import datetime
 from yahoo_finance import Share
+from googlefinance import getQuotes
 
 
 def scale_value(x, in_min, in_max, out_min, out_max):
@@ -83,17 +85,18 @@ def main():
     my_nimbus = Nimbus("./cfg/wink.cfg")
 
     update_period_sec = int(app_cfg.get('global', 'update_period_sec'))
-    test_value = 100
+
     while 1:
-        oas = float(Share('OAS').get_price())
-        ugaz = float(Share('UGAZ').get_price())
-        total = (oas * 1401) + (ugaz * 921) + 2.15
-        print oas
-        print ugaz
-        print total
-        my_nimbus.set_dial_value(0, oas, "OAS:%.2f" % oas)
-        my_nimbus.set_dial_value(1, ugaz, "UGAZ:%.2f" % ugaz)
-        my_nimbus.set_dial_value(2, ugaz, "T:%.2f" % total)
+        oas_json = json.dumps(getQuotes('OAS'), indent = 2)
+        oas_data = json.loads(oas_json)[0]
+        oas_price = float(oas_data['LastTradePrice'])
+        ugaz_json = json.dumps(getQuotes('UGAZ'), indent = 2)
+        ugaz_data = json.loads(ugaz_json)[0]
+        ugaz_price = float(ugaz_data['LastTradePrice'])
+        total = (oas_price * 1401) + (ugaz_price * 921) + 2.15
+        my_nimbus.set_dial_value(0, oas_price, "OAS:%.2f" % oas_price)
+        my_nimbus.set_dial_value(1, ugaz_price, "UGAZ:%.2f" % ugaz_price)
+        my_nimbus.set_dial_value(2, total, "T:%.2f" % total)
         time.sleep(update_period_sec)
 
     # normally, we should never return...
