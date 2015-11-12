@@ -1,1 +1,3 @@
 googlefinance
+mintapi
+yahoo-finance

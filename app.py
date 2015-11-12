@@ -9,15 +9,26 @@ import ConfigParser
 import time
 import json
 import datetime
-from yahoo_finance import Share
+import mintapi
 from googlefinance import getQuotes
-
+from yahoo_finance import Share
 
 def scale_value(x, in_min, in_max, out_min, out_max):
     try:
         return (x - in_min) * (out_max - out_min) // (in_max - in_min) + out_min
     except ZeroDivisionError:
         return 0
+
+def percentage(part, whole):
+    if part < 1:
+        return 0
+    elif part > whole:
+        return 99
+
+    percent = 100 * float(part)/float(whole)
+    if percent > 99:
+        return 99
+    return percent
 
 
 class Nimbus(object):
@@ -36,16 +47,7 @@ class Nimbus(object):
                               {})
         self.__dict__ = c.__dict__
 
-        # keep locally seen ranges for scaling purposes:
-        self.min_value = 10
-        self.max_value = 0
-
-    def set_dial_value(self, dial_num, value, label):
-            if value < self.min_value:
-                self.min_value = value
-            if value > self.max_value:
-                self.max_value = value
-
+    def set_dial_value(self, dial_num, percent, label):
             dial = self.dials()[dial_num]
             # the dial servo will always display a percentage [0..100],
             # we'll set up the dial minimum and maximum to reflect that:
@@ -59,15 +61,9 @@ class Nimbus(object):
                 "num_ticks": 12
             }
 
-            # calculate percentage:
-            percent = scale_value(value, self.min_value, self.max_value, 0, 100)
-            percent = 0
-
             # log statement:
             current_time = datetime.datetime.now().time()
-            print "%s percent = %d%%, label = %s, actual = %d [%d, %d]" % (
-                current_time.isoformat(), percent, label,
-                value, self.min_value, self.max_value)
+            print "percent = %d%%, label = %s" % (percent, label)
 
             # assert manual control (chan. 10) with new config, value, & label:
             dial.update(dict(
@@ -81,22 +77,49 @@ class Nimbus(object):
 def main():
     app_cfg = ConfigParser.RawConfigParser()
     app_cfg.read("./cfg/app.cfg")
+    update_period_sec = int(app_cfg.get('global', 'update_period_sec'))
 
     my_nimbus = Nimbus("./cfg/wink.cfg")
 
-    update_period_sec = int(app_cfg.get('global', 'update_period_sec'))
+    mint_cfg = ConfigParser.RawConfigParser()
+    mint_cfg.read("./cfg/mint.cfg")
+    mint_email = mint_cfg.get('auth', 'email')
+    mint_password = mint_cfg.get('auth', 'password')
+    monthly_budget = mint_cfg.get('auth', 'monthly_budget')
 
     while 1:
+        # stocks
+        oas = Share('OAS')
+        oas_open_price = float(oas.get_open())
         oas_json = json.dumps(getQuotes('OAS'), indent = 2)
         oas_data = json.loads(oas_json)[0]
         oas_price = float(oas_data['LastTradePrice'])
+        percent = percentage(oas_price, oas_open_price)
+        my_nimbus.set_dial_value(0, percent,
+                                 "OAS:%.2f" % oas_price)
+
+        ugaz = Share('UGAZ')
+        ugaz_open_price = float(ugaz.get_open())
         ugaz_json = json.dumps(getQuotes('UGAZ'), indent = 2)
         ugaz_data = json.loads(ugaz_json)[0]
         ugaz_price = float(ugaz_data['LastTradePrice'])
-        total = (oas_price * 1401) + (ugaz_price * 921) + 2.15
-        my_nimbus.set_dial_value(0, oas_price, "OAS:%.2f" % oas_price)
-        my_nimbus.set_dial_value(1, ugaz_price, "UGAZ:%.2f" % ugaz_price)
-        my_nimbus.set_dial_value(2, total, "T:%.2f" % total)
+        percent = percentage(ugaz_price, ugaz_open_price)
+        my_nimbus.set_dial_value(1, percent,
+                                 "UGAZ:%.2f" % ugaz_price)
+
+        # monthly budget from mint
+        mint = mintapi.Mint(mint_email, mint_password)
+        budgets = json.loads(json.dumps(mint.get_budgets(), indent = 2))
+        total_spent = 0
+        can_spend = 0
+        for budget in budgets['spend']:
+            item = json.loads(json.dumps(budget))
+            total_spent = total_spent + item['amt']
+            can_spend = can_spend + item['rbal']
+        percent = percentage(total_spent, monthly_budget)
+        my_nimbus.set_dial_value(2, percent, "%d" % total_spent)
+        my_nimbus.set_dial_value(3, 0, "Left:%d" % can_spend)
+
         time.sleep(update_period_sec)
 
     # normally, we should never return...
