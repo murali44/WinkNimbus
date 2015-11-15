@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import ConfigParser
 import datetime
+import itertools
 import sys
 import time
 import traceback
@@ -57,7 +58,6 @@ class Nimbus(object):
         }
 
         # log statement:
-        current_time = datetime.datetime.now().time()
         print "percent = %d%%, label = %s" % (percent, label)
 
         # assert manual control (chan. 10) with new config, value, & label:
@@ -74,45 +74,40 @@ def main():
     cfg.read("./cfg/app.cfg")
     update_period_sec = int(cfg.get('global', 'update_period_sec'))
 
-    my_nimbus = Nimbus("./cfg/wink.cfg")
+    mint_email = cfg.get('mint', 'email')
+    mint_password = cfg.get('mint', 'password')
+    monthly_budget = cfg.get('mint', 'monthly_budget')
 
-    cfg.read("./cfg/mint.cfg")
-    mint_email = cfg.get('auth', 'email')
-    mint_password = cfg.get('auth', 'password')
-    monthly_budget = cfg.get('setting', 'monthly_budget')
+    stock_list = cfg.get('stocks', 'stocks')
+    stocks = itertools.cycle(stock_list.replace(" ", "").split(","))
+
+    my_nimbus = Nimbus("./cfg/wink.cfg")
 
     while 1:
         # stocks
-        oas = Share('OAS')
-        oas_open_price = float(oas.get_open())
-        oas_json = json.dumps(getQuotes('OAS'), indent=2)
-        oas_data = json.loads(oas_json)[0]
-        oas_price = float(oas_data['LastTradePrice'])
-        percent = percentage(oas_price, oas_open_price)
-        my_nimbus.set_dial_value(0, percent,
-                                 "OAS:%.2f" % oas_price)
-
-        ugaz = Share('UGAZ')
-        ugaz_open_price = float(ugaz.get_open())
-        ugaz_json = json.dumps(getQuotes('UGAZ'), indent=2)
-        ugaz_data = json.loads(ugaz_json)[0]
-        ugaz_price = float(ugaz_data['LastTradePrice'])
-        percent = percentage(ugaz_price, ugaz_open_price)
-        my_nimbus.set_dial_value(1, percent,
-                                 "UGAZ:%.2f" % ugaz_price)
+        stock = stocks.next()
+        stk = Share(stock)
+        open_price = float(stk.get_open())
+        stk_json = json.dumps(getQuotes(stock), indent=2)
+        stk_data = json.loads(stk_json)[0]
+        stk_price = float(stk_data['LastTradePrice'])
+        percent = percentage(stk_price, open_price)
+        my_nimbus.set_dial_value(0, percent, "%s:%.2f" % (stock, stk_price))
 
         # monthly budget from mint
-        mint = mintapi.Mint(mint_email, mint_password)
-        budgets = json.loads(json.dumps(mint.get_budgets(), indent=2))
-        total_spent = 0
-        can_spend = 0
-        for budget in budgets['spend']:
-            item = json.loads(json.dumps(budget))
-            total_spent = total_spent + item['amt']
-            can_spend = can_spend + item['rbal']
-        percent = percentage(total_spent, monthly_budget)
-        my_nimbus.set_dial_value(2, percent, "%d" % total_spent)
-        my_nimbus.set_dial_value(3, 0, "Left:%d" % can_spend)
+        # check mint only once an hour at the top of the hour
+        if datetime.datetime.now().minute == 0:
+            mint = mintapi.Mint(mint_email, mint_password)
+            budgets = json.loads(json.dumps(mint.get_budgets(), indent=2))
+            total_spent = 0
+            can_spend = 0
+            for budget in budgets['spend']:
+                item = json.loads(json.dumps(budget))
+                total_spent = total_spent + item['amt']
+                can_spend = can_spend + item['rbal']
+            percent = percentage(total_spent, monthly_budget)
+            my_nimbus.set_dial_value(2, percent, "%d" % total_spent)
+            my_nimbus.set_dial_value(3, 0, "Left:%d" % can_spend)
 
         time.sleep(update_period_sec)
 
@@ -128,7 +123,7 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             ret = 0
             break
-        except ex:
+        except:
             print "Exception:"
             print '-'*60
             traceback.print_exc(file=sys.stdout)
