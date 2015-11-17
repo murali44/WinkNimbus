@@ -46,15 +46,15 @@ def update_stock(dial, stock):
     prev_close_price = float(stk.get_prev_close())
     stk_data = json.loads(json.dumps(getQuotes(stock), indent=2))[0]
     stk_price = float(stk_data['LastTradePrice'])
-    NIMBUS.set_dial_value(0, percentage(stk_price, prev_close_price),
+    NIMBUS.set_dial_value(dial, percentage(stk_price, prev_close_price),
                           "%s:%.2f" % (stock, stk_price))
 
 
 def update_mint(dial, total_spent, can_spend, spent_percent):
     if MINT_DISPLAY.next() == 'spent':
-        NIMBUS.set_dial_value(1, spent_percent, "Budg:%d" % total_spent)
+        NIMBUS.set_dial_value(dial, spent_percent, "Budg:%d" % total_spent)
     else:
-        NIMBUS.set_dial_value(1, spent_percent, "Left:%d" % can_spend)
+        NIMBUS.set_dial_value(dial, spent_percent, "Left:%d" % can_spend)
 
 
 def get_mint_data():
@@ -80,8 +80,7 @@ def main():
     while 1:
         # stocks
         if trading_hours():
-            stock = stocks.next()
-            update_stock(0, stock)
+            update_stock(0, stocks.next())
 
         # mint
         # check mint only once an hour
