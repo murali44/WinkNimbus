@@ -11,7 +11,11 @@ import json
 from googlefinance import getQuotes
 import mintapi
 from nimbus import Nimbus
+import pandas as pd
+from rescuetime.api.service import Service
+from rescuetime.api.access import AnalyticApiKey
 from yahoo_finance import Share
+
 
 # Globals
 NIMBUS = Nimbus("./cfg/wink.cfg")
@@ -22,6 +26,7 @@ mint_email = cfg.get('mint', 'email')
 mint_password = cfg.get('mint', 'password')
 monthly_budget = float(cfg.get('mint', 'monthly_budget'))
 MINT_DISPLAY = itertools.cycle(["spent", "can_spend"])
+rescuetime_apikey = cfg.get('rescuetime', 'apikey')
 
 
 def trading_hours():
@@ -70,6 +75,27 @@ def get_mint_data():
     return total_spent, can_spend, spent_percent
 
 
+def update_rescuetime_efficiency(dial):
+    try:
+        today_date = datetime.date.today().strftime("%Y-%m-%d")
+        s = Service.Service()
+        k = AnalyticApiKey.AnalyticApiKey(rescuetime_apikey, s)
+        p = {'restrict_begin': today_date,
+             'restrict_end': today_date,
+             'restrict_kind': 'efficiency',
+             'perspective': 'interval',
+             'resolution_time': 'day'}
+        d = s.fetch_data(k, p)
+
+        df = pd.DataFrame(d['rows'], columns=d['row_headers'])
+        efficiency = df["Efficiency (percent)"]
+        dates = df["Date"]
+        eff = int(efficiency.tail(1))
+        NIMBUS.set_dial_value(dial, eff, "Prod:%d" % eff)
+    except:
+        print "rescuetime Failed"
+
+
 def main():
     stock_list = cfg.get('stocks', 'stocks')
     stocks = itertools.cycle(stock_list.replace(" ", "").split(","))
@@ -88,6 +114,12 @@ def main():
             total_spent, can_spend, spent_percent = get_mint_data()
         update_mint(1, total_spent, can_spend, spent_percent)
 
+        # rescuetime daily efficiency
+        if datetime.datetime.now().minute in [0, 15, 30, 45]:
+            print "rescuetime update"
+            update_rescuetime_efficiency(2)
+
+        # sleep
         time.sleep(update_period_sec)
 
     # normally, we should never return...
