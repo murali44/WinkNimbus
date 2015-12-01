@@ -3,9 +3,11 @@ import ConfigParser
 import datetime
 import itertools
 import pytz
+import simplejson
 import sys
 import time
 import traceback
+import urllib
 import json
 
 from googlefinance import getQuotes
@@ -27,7 +29,9 @@ mint_password = cfg.get('mint', 'password')
 monthly_budget = float(cfg.get('mint', 'monthly_budget'))
 MINT_DISPLAY = itertools.cycle(["spent", "can_spend"])
 rescuetime_apikey = cfg.get('rescuetime', 'apikey')
-
+google_apikey = cfg.get('traffic', 'google_apikey')
+origin_cord = cfg.get('traffic', 'origin_cord')
+dest_cord = cfg.get('traffic', 'destination_cord')
 
 def trading_hours():
     start = datetime.time(8, 30, 0)
@@ -96,6 +100,15 @@ def update_rescuetime_efficiency(dial):
         print "rescuetime Failed"
 
 
+def update_traffic_info(dial):
+    utc_now = int(time.time())
+    url = "https://maps.googleapis.com/maps/api/distancematrix/json?origins={0}&destinations={1}&mode=driving&language=en-EN&sensor=false&departure_time={2}&key={3}".format(str(origin_cord),str(dest_cord), str(utc_now), str(google_apikey))
+    result= simplejson.load(urllib.urlopen(url))
+    driving_time = result['rows'][0]['elements'][0]['duration_in_traffic']['value']
+    d_time = int(driving_time)/60
+    NIMBUS.set_dial_value(3, 0, "Traf:%d" % d_time)
+
+
 def main():
     stock_list = cfg.get('stocks', 'stocks')
     stocks = itertools.cycle(stock_list.replace(" ", "").split(","))
@@ -118,6 +131,10 @@ def main():
         if datetime.datetime.now().minute in [0, 15, 30, 45]:
             print "rescuetime update"
             update_rescuetime_efficiency(2)
+
+	# traffic info
+	if datetime.datetime.now().minute in [0, 15, 30, 45]:
+	    update_traffic_info(3)
 
         # sleep
         time.sleep(update_period_sec)

@@ -3,3 +3,4 @@ mintapi
 yahoo-finance
 httplib2
 pandas
+simplejson
